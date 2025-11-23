@@ -18,7 +18,7 @@ class CargadorDataset:
     Cada carpeta representa una clase.
     """
 
-    def __init__(self, ruta_dataset, tamaño=(700, 600), usar_grises=True):
+    def __init__(self, ruta_dataset, tamaño=(128, 128), usar_grises=True):
         self.ruta_dataset = ruta_dataset
         self.tamaño = tamaño  # (alto, ancho)
         self.usar_grises = usar_grises
@@ -145,7 +145,7 @@ class CargadorDataset:
     # -----------------------------------------------------
     #             División de entrenamiento / prueba
     # -----------------------------------------------------
-    def dividir_train_test(self, X, y, porcentaje_test=0.2):
+    def dividir_train_test(self, X, y, porcentaje_test=0.8):
         """
         Divide el dataset en conjuntos de entrenamiento y prueba.
         
