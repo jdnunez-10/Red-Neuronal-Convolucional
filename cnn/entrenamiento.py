@@ -1,172 +1,121 @@
 import numpy as np
 
 class EntrenadorCNN:
-    """
-    Controlador del entrenamiento de la red neuronal.
-    Implementa forward, backward y actualización de pesos.
-    """
-
     def __init__(self, modelo, lr, funcion_perdida, derivada_funcion_perdida):
         self.modelo = modelo
         self.lr = lr
         self.funcion_perdida = funcion_perdida
         self.derivada_perdida = derivada_funcion_perdida
-        
-        # Historial de métricas
+
         self.historial = {
             'perdida': [],
-            'accuracy': []
+            'accuracy': [],
+            'val_accuracy': []
         }
 
-    def entrenar(self, X, y, epochs=5, lote_size=8, validacion=None):
-        """
-        Entrena el modelo con los datos proporcionados.
-        
-        Parámetros:
-        -----------
-        X : numpy.ndarray
-            Imágenes normalizadas con forma (N, C, H, W)
-        y : numpy.ndarray
-            Etiquetas enteras con forma (N,)
-        epochs : int
-            Número de épocas de entrenamiento
-        lote_size : int
-            Tamaño del batch
-        validacion : tuple (X_val, y_val), opcional
-            Datos de validación para evaluar después de cada época
-        """
+    def entrenar(self, X, y, epochs=15, lote_size=32, validacion=None):
+
+        # Normalizar imágenes desde aquí
+        X = X.astype("float32") / 255.0
+        if validacion:
+            X_val = validacion[0].astype("float32") / 255.0
+            y_val = validacion[1]
 
         num_muestras = X.shape[0]
         num_lotes = num_muestras // lote_size
 
-        print(f"\n{'='*60}")
-        print(f"  INICIO DEL ENTRENAMIENTO")
-        print(f"{'='*60}")
-        print(f"Muestras de entrenamiento: {num_muestras}")
-        print(f"Tamaño de lote: {lote_size}")
-        print(f"Número de lotes por época: {num_lotes}")
-        print(f"Tasa de aprendizaje: {self.lr}")
-        print(f"{'='*60}\n")
-
         for epoca in range(epochs):
-            print(f"{'='*60}")
-            print(f"  ÉPOCA {epoca+1}/{epochs}")
-            print(f"{'='*60}")
+            print(f"\n---- ÉPOCA {epoca+1}/{epochs} ----")
 
-            # Mezclar dataset cada época
-            indices = np.arange(num_muestras)
-            np.random.shuffle(indices)
+            indices = np.random.permutation(num_muestras)
             X_mezclado = X[indices]
             y_mezclado = y[indices]
 
             perdida_total = 0
-            accuracy_total = 0
-            lotes_procesados = 0
+            correctos = 0
+            total = 0
 
-            # Entrenamiento por lotes
             for i in range(0, num_muestras, lote_size):
                 X_lote = X_mezclado[i:i+lote_size]
                 y_lote = y_mezclado[i:i+lote_size]
 
-                # Validar que el lote no esté vacío
-                if len(X_lote) == 0:
+                if X_lote.shape[0] < lote_size:
                     continue
 
-                # Forward completo
+                # Mezcla interna del lote
+                idx = np.random.permutation(X_lote.shape[0])
+                X_lote = X_lote[idx]
+                y_lote = y_lote[idx]
+
                 logits = self.modelo.forward(X_lote)
 
-                # Calcular pérdida
+                # pérdida
                 perdida = self.funcion_perdida(logits, y_lote)
                 perdida_total += perdida
 
-                # Calcular accuracy del lote
-                predicciones = np.argmax(logits, axis=1)
-                accuracy_lote = np.mean(predicciones == y_lote)
-                accuracy_total += accuracy_lote
+                # accuracy
+                pred = np.argmax(logits, axis=1)
+                correctos += np.sum(pred == y_lote)
+                total += len(y_lote)
 
-                # Calcular gradiente de la pérdida
-                gradiente = self.derivada_perdida(logits, y_lote)
+                # backprop
+                grad = self.derivada_perdida(logits, y_lote)
 
-                # Backpropagation a través del modelo
-                self.modelo.backward(gradiente, self.lr)
+                # Clip gradiente para estabilidad
+                grad = np.clip(grad, -1.0, 1.0)
+                # Backpropagation - 
+                self.modelo.backward(grad, self.lr)
+                
+                # Actualizar pesos -
+                self.modelo.actualizar()
 
-                lotes_procesados += 1
+            # Métricas de la época
+            perdida_promedio = perdida_total / num_lotes
+            accuracy_promedio = correctos / total
 
-                # Mostrar progreso cada 10 lotes
-                if (lotes_procesados % 10 == 0) or (lotes_procesados == num_lotes):
-                    print(f"  Lote {lotes_procesados}/{num_lotes} - "
-                          f"Pérdida: {perdida:.4f} - "
-                          f"Accuracy: {accuracy_lote*100:.2f}%")
-
-            # Promedios de la época
-            perdida_promedio = perdida_total / lotes_procesados
-            accuracy_promedio = accuracy_total / lotes_procesados
-
-            # Guardar en historial
             self.historial['perdida'].append(perdida_promedio)
             self.historial['accuracy'].append(accuracy_promedio)
 
-            print(f"\n{'─'*60}")
-            print(f"  RESUMEN ÉPOCA {epoca+1}")
-            print(f"{'─'*60}")
-            print(f"  Pérdida promedio: {perdida_promedio:.4f}")
-            print(f"  Accuracy promedio: {accuracy_promedio*100:.2f}%")
+            print(f" Pérdida: {perdida_promedio:.4f}")
+            print(f" Accuracy: {accuracy_promedio*100:.2f}%")
 
-            # Evaluación en validación si está disponible
             if validacion is not None:
                 X_val, y_val = validacion
-                val_accuracy = self.evaluar(X_val, y_val, lote_size)
-                print(f"  Accuracy validación: {val_accuracy*100:.2f}%")
+            val_accuracy = self.evaluar(X_val, y_val, lote_size)
+            self.historial['val_accuracy'].append(val_accuracy)
+            print(f"  Accuracy validación: {val_accuracy*100:.2f}%")
 
             print(f"{'─'*60}\n")
 
-        print(f"\n{'='*60}")
+            print(f"\n{'='*60}")
         print(f"  ENTRENAMIENTO COMPLETADO")
         print(f"{'='*60}\n")
 
-    def evaluar(self, X, y, lote_size=8):
-        """
-        Evalúa el modelo en un conjunto de datos.
-        
-        Parámetros:
-        -----------
-        X : numpy.ndarray
-            Imágenes de validación/prueba
-        y : numpy.ndarray
-            Etiquetas verdaderas
-        lote_size : int
-            Tamaño del batch para evaluación
-        
-        Retorna:
-        --------
-        float
-            Accuracy del modelo
-        """
-        num_muestras = X.shape[0]
-        predicciones_correctas = 0
 
-        for i in range(0, num_muestras, lote_size):
-            X_lote = X[i:i+lote_size]
-            y_lote = y[i:i+lote_size]
+    def evaluar(self, X, y, lote_size=32):
+        X = X.astype("float32") / 255.0
 
-            # Forward pass
-            logits = self.modelo.forward(X_lote)
-            predicciones = np.argmax(logits, axis=1)
+        correctos = 0
+        total = 0
 
-            # Contar aciertos
-            predicciones_correctas += np.sum(predicciones == y_lote)
+        for i in range(0, X.shape[0], lote_size):
+            logits = self.modelo.forward(X[i:i+lote_size])
+            pred = np.argmax(logits, axis=1)
+            correctos += np.sum(pred == y[i:i+lote_size])
+            total += len(y[i:i+lote_size])
 
-        accuracy = predicciones_correctas / num_muestras
-        return accuracy
+        return correctos / total
 
-    def mostrar_historial(self):
-        """
-        Muestra el historial de entrenamiento.
-        """
+
+def mostrar_historial(self):
         print(f"\n{'='*60}")
         print(f"  HISTORIAL DE ENTRENAMIENTO")
         print(f"{'='*60}")
         for i, (perdida, accuracy) in enumerate(zip(self.historial['perdida'], 
                                                      self.historial['accuracy'])):
-            print(f"Época {i+1}: Pérdida = {perdida:.4f}, Accuracy = {accuracy*100:.2f}%")
+            val_acc = self.historial['val_accuracy'][i] if i < len(self.historial['val_accuracy']) else None
+            resumen = f"Época {i+1}: Pérdida = {perdida:.4f}, Accuracy = {accuracy*100:.2f}%"
+            if val_acc is not None:
+                resumen += f", Val Accuracy = {val_acc*100:.2f}%"
+            print(resumen)
         print(f"{'='*60}\n")

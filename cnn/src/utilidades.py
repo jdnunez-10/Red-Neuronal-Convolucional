@@ -2,7 +2,7 @@ import numpy as np
 import os
 from PIL import Image
 
-def cargar_dataset(ruta_data, tam_imagen=(700,600), max_por_clase=100):
+def cargar_dataset(ruta_data, tam_imagen=(128,128), max_por_clase=40):
     X = []
     y = []
     clases = sorted(os.listdir(ruta_data))
@@ -24,7 +24,7 @@ def one_hot(y, num_clases):
     one_hot[np.arange(y.shape[0]), y] = 1
     return one_hot
 
-def generar_mini_batches(X, y, batch_size=16):
+def generar_mini_batches(X, y, batch_size=32):
     indices = np.arange(X.shape[0])
     np.random.shuffle(indices)
     for start in range(0, X.shape[0], batch_size):

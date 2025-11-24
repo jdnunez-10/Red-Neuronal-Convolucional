@@ -5,177 +5,207 @@ from src.capas.capaPooling import CapaMaxPooling2x2
 from src.capas.capaAplanada import CapaAplanada
 from src.capas.capaTotalmenteConectada import CapaTotalmenteConectada
 from src.activaciones import ReLU, Softmax
+from src.funcionesPerdida import funcion_perdida_crossentropy, derivada_crossentropy
+
 
 class CNNMinima:
     """
-    Red Neuronal Convolucional mínima programada desde cero.
-    Arquitectura:
-        Conv → ReLU → Pool
-        Conv → ReLU → Pool
-        Flatten
-        FC → ReLU
-        FC → Softmax
+    Red Neuronal Convolucional programada desde cero.
+    Arquitectura optimizada para imágenes 224x224:
+
+        Conv1 (4 filtros) → ReLU → Pool1
+        Conv2 (8 filtros) → ReLU → Pool2
+        Flatten → FC1 → ReLU → FC2 → Softmax
     """
 
-    def __init__(self, tamaño_entrada=(1,64,64), num_clases=5, lr=1e-3, umbral=0.6):
+    def __init__(self, tamaño_entrada=(1, 128, 128), num_clases=5, lr=5e-3, umbral=0.6):
         C, H, W = tamaño_entrada
         self.lr = lr
         self.umbral = umbral
         self.num_clases = num_clases
 
-        print(f"Inicializando CNN con entrada: {tamaño_entrada}")
+        print("="*70)
+        print("  INICIALIZANDO CNN PARA 128x128")
+        print("="*70)
+        print(f"Entrada: {tamaño_entrada}")
+        print(f"Clases: {num_clases}\n")
 
-        # ------- CAPA 1 -------
-        self.conv1 = CapaConvolucional(C, 4, 3, padding=1)
+        # --- BLOQUE 1 ---
+        print(" Bloque 1: 8 filtros")
+        self.conv1 = CapaConvolucional(tamaño_entrada[0], 8, tam_kernel=3, padding=1)
         self.relu1 = ReLU()
         self.pool1 = CapaMaxPooling2x2()
 
-        # ------- CAPA 2 -------
-        self.conv2 = CapaConvolucional(4, 8, 3, padding=1)
+        # --- BLOQUE 2 ---
+        print(" Bloque 2: 16 filtros")
+        self.conv2 = CapaConvolucional(8, 16, tam_kernel=3, padding=1)
         self.relu2 = ReLU()
         self.pool2 = CapaMaxPooling2x2()
 
-        # ------- CAPAS FINALES -------
+        # --- BLOQUE 3 ---
+        print(" Bloque 3: 32 filtros")
+        self.conv3 = CapaConvolucional(16, 32, tam_kernel=3, padding=1)
+        self.relu3 = ReLU()
+        self.pool3 = CapaMaxPooling2x2()
+
+        # --- BLOQUE 4 ---
+        print(" Bloque 4: 64 filtros")
+        self.conv4 = CapaConvolucional(32, 64, tam_kernel=3, padding=1)
+        self.relu4 = ReLU()
+        self.pool4 = CapaMaxPooling2x2()
+
+        # --- APLANADO ---
         self.flatten = CapaAplanada()
 
-        # Calcular tamaño del vector aplanado CORRECTAMENTE
-        print(f"Calculando tamaño del vector aplanado...")
-        dummy = np.zeros((1, C, H, W))
+        # --- CALCULAR TAMAÑO AUTOMÁTICAMENTE ---
+        print("\n Calculando dimensiones...")
+        dummy = np.zeros((1, *tamaño_entrada))
         
-        # Pasar por cada capa paso a paso
         x = self.conv1.forward(dummy)
-        print(f"  Después Conv1: {x.shape}")
         x = self.relu1.forward(x)
         x = self.pool1.forward(x)
-        print(f"  Después Pool1: {x.shape}")
-        
+        print(f"   Después Pool1: {x.shape}")
+
         x = self.conv2.forward(x)
-        print(f"  Después Conv2: {x.shape}")
         x = self.relu2.forward(x)
         x = self.pool2.forward(x)
-        print(f"  Después Pool2: {x.shape}")
-        
+        print(f"   Después Pool2: {x.shape}")
+
+        x = self.conv3.forward(x)
+        x = self.relu3.forward(x)
+        x = self.pool3.forward(x)
+        print(f"   Después Pool3: {x.shape}")
+
+        x = self.conv4.forward(x)
+        x = self.relu4.forward(x)
+        x = self.pool4.forward(x)
+        print(f"   Después Pool4: {x.shape}")
+
         x = self.flatten.forward(x)
         tamaño_flat = x.shape[1]
+        print(f"\n   ✓ Vector aplanado: {tamaño_flat:,}\n")
 
-        print(f"  Tamaño final aplanado: {tamaño_flat}")
-
-        # Capa totalmente conectada
-        self.fc1 = CapaTotalmenteConectada(tamaño_flat, 64)
+        # --- Fully Connected ---
+        print(f" FC1: {tamaño_flat:,} → 256")
+        self.fc1 = CapaTotalmenteConectada(tamaño_flat, 256)
         self.relu_fc = ReLU()
 
-        # Capa de salida
-        self.fc2 = CapaTotalmenteConectada(64, num_clases)
+        print(f" FC2: 256 → {num_clases}")
+        self.fc2 = CapaTotalmenteConectada(256, num_clases)
         self.softmax = Softmax()
-        
-        print(f"✓ CNN inicializada correctamente\n")
 
-    # --------------------------------------------------
-    #                   FORWARD
-    # --------------------------------------------------
-    def forward(self, X):
-        """
-        Propagación hacia adelante a través de toda la red.
-        X: entrada con forma (N, C, H, W)
-        Retorna: logits (sin softmax) con forma (N, num_clases)
-        """
-        x = self.conv1.forward(X)
-        x = self.relu1.forward(x)
-        x = self.pool1.forward(x)
+        # Registrar capas en orden
+        self.capas = [
+            self.conv1, self.relu1, self.pool1,
+            self.conv2, self.relu2, self.pool2,
+            self.conv3, self.relu3, self.pool3,
+            self.conv4, self.relu4, self.pool4,
+            self.flatten,
+            self.fc1, self.relu_fc,
+            self.fc2
+        ]
 
-        x = self.conv2.forward(x)
-        x = self.relu2.forward(x)
-        x = self.pool2.forward(x)
+        # Calcular total de parámetros
+        total_params = 0
+        for capa in self.capas:
+            if hasattr(capa, 'pesos'):
+                total_params += np.prod(capa.pesos.shape)
+                if hasattr(capa, 'bias'):
+                    total_params += np.prod(capa.bias.shape)
 
-        x = self.flatten.forward(x)
+        print("\n" + "="*70)
+        print("   CNN INICIALIZADA")
+        print("="*70)
+        print(f"Total parámetros: {total_params:,}")
+        print(f"Capas: {len(self.capas)}")
+        print("="*70 + "\n")
 
-        x = self.fc1.forward(x)
-        x = self.relu_fc.forward(x)
-
-        logits = self.fc2.forward(x)
-        return logits
-
-    # --------------------------------------------------
-    #                 BACKWARD
-    # --------------------------------------------------
-    def backward(self, gradiente, lr):
-        """
-        Backpropagation a través de toda la red.
-        """
-        grad = self.fc2.backward(gradiente, lr)
-        grad = self.relu_fc.backward(grad)
-        grad = self.fc1.backward(grad, lr)
-        
-        grad = self.flatten.backward(grad)
-        
-        grad = self.pool2.backward(grad)
-        grad = self.relu2.backward(grad)
-        grad = self.conv2.backward(grad, lr)
-        
-        grad = self.pool1.backward(grad)
-        grad = self.relu1.backward(grad)
-        grad = self.conv1.backward(grad, lr)
-        
+    # ------------------------------
+    # FORWARD
+    # ------------------------------
+    def forward(self, x):
+        for capa in self.capas:
+            x = capa.forward(x)
+        return x
+# ------------------------------
+    # BACKWARD
+    # ------------------------------
+    def backward(self, grad, lr):
+        """Backpropagation con learning rate"""
+        for capa in reversed(self.capas):
+            if hasattr(capa, 'backward'):
+                # Algunas capas necesitan lr, otras no
+                if isinstance(capa, (CapaConvolucional, CapaTotalmenteConectada)):
+                    grad = capa.backward(grad, lr)
+                else:
+                    grad = capa.backward(grad)
         return grad
 
-    # --------------------------------------------------
-    #                 PREDICCIÓN
-    # --------------------------------------------------
-    def predecir_con_umbral(self, X):
-        """
-        Devuelve la clase predicha o 'ninguna' si la probabilidad máxima
-        no supera el umbral definido.
-        """
-        logits = self.forward(X)
-        probs = self.softmax.forward(logits)
+    # ------------------------------
+    # ACTUALIZACIÓN DE PESOS
+    # ------------------------------
+    def actualizar(self, lr=5e-3):
+        """Actualiza pesos de capas que lo necesitan"""
+        for capa in self.capas:
+            if hasattr(capa, "actualizar"):
+                capa.actualizar(lr)
 
-        pred_indices = np.argmax(probs, axis=1)
-        pred_vals = np.max(probs, axis=1)
+    # ------------------------------
+    # ENTRENAMIENTO POR LOTE
+    # ------------------------------
+    def paso_entrenamiento(self, x_batch, y_batch):
+        """Un paso completo de entrenamiento"""
+        # Forward pass
+        output = self.forward(x_batch)
+        
+        # Calcular pérdida
+        perdida = funcion_perdida_crossentropy(output, y_batch)
+        
+        # Backward pass
+        grad = derivada_crossentropy(output, y_batch)
+        self.backward(grad)
+        
+        # Actualizar pesos
+        self.actualizar()
+        
+        return perdida, output
 
-        etiquetas_finales = []
-        for p, m in zip(pred_indices, pred_vals):
-            if m < self.umbral:
-                etiquetas_finales.append("ninguna")
-            else:
-                etiquetas_finales.append(int(p))
+    # ------------------------------
+    # PREDICCIÓN
+    # ------------------------------
+    def predecir(self, x):
+        """Predicción en modo evaluación"""
+        scores = self.forward(x, entrenamiento=False)
+        return np.argmax(scores, axis=1)
 
-        return etiquetas_finales, probs
-
-    # --------------------------------------------------
-    #            GUARDAR Y CARGAR PESOS
-    # --------------------------------------------------
+    def predecir_proba(self, x):
+        """Retorna probabilidades"""
+        return self.forward(x, entrenamiento=False)
+    # ------------------------------
+    # GUARDAR Y CARGAR PESOS
+    # ------------------------------
     def guardar_pesos(self, ruta):
-        """
-        Guarda los pesos del modelo en un archivo pickle.
-        """
-        pesos = {
-            'conv1_pesos': self.conv1.pesos,
-            'conv1_bias': self.conv1.bias,
-            'conv2_pesos': self.conv2.pesos,
-            'conv2_bias': self.conv2.bias,
-            'fc1_pesos': self.fc1.pesos,
-            'fc1_bias': self.fc1.bias,
-            'fc2_pesos': self.fc2.pesos,
-            'fc2_bias': self.fc2.bias,
-        }
+        import pickle
+        pesos = {}
+        for i, capa in enumerate(self.capas):
+            if hasattr(capa, 'pesos'):
+                pesos[f'capa_{i}_pesos'] = capa.pesos
+            if hasattr(capa, 'bias'):
+                pesos[f'capa_{i}_bias'] = capa.bias
+        
         with open(ruta, 'wb') as f:
             pickle.dump(pesos, f)
         print(f"✓ Pesos guardados en {ruta}")
 
     def cargar_pesos(self, ruta):
-        """
-        Carga los pesos del modelo desde un archivo pickle.
-        """
+        import pickle
         with open(ruta, 'rb') as f:
             pesos = pickle.load(f)
         
-        self.conv1.pesos = pesos['conv1_pesos']
-        self.conv1.bias = pesos['conv1_bias']
-        self.conv2.pesos = pesos['conv2_pesos']
-        self.conv2.bias = pesos['conv2_bias']
-        self.fc1.pesos = pesos['fc1_pesos']
-        self.fc1.bias = pesos['fc1_bias']
-        self.fc2.pesos = pesos['fc2_pesos']
-        self.fc2.bias = pesos['fc2_bias']
+        for i, capa in enumerate(self.capas):
+            if hasattr(capa, 'pesos') and f'capa_{i}_pesos' in pesos:
+                capa.pesos = pesos[f'capa_{i}_pesos']
+            if hasattr(capa, 'bias') and f'capa_{i}_bias' in pesos:
+                capa.bias = pesos[f'capa_{i}_bias']
         
         print(f"✓ Pesos cargados desde {ruta}")
